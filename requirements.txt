@@ -1,0 +1,7 @@
+langgraph
+langchain
+langchain-google-genai
+google-cloud-vision
+opencv-python
+python-dotenv
+Pillow
