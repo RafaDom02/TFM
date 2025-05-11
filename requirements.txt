@@ -5,3 +5,5 @@ google-cloud-vision
 opencv-python
 python-dotenv
 Pillow
+opencv-python
+streamlit
