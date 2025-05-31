@@ -63,6 +63,9 @@ def classify_input_node(state: GraphState) -> GraphState:
         if "describe_image" in classification_result:
             print("Clasificación: describe_image")
             return {**state, "classification": "describe_image", "error": None}
+        elif "video" in classification_result:
+            print("Clasificación: video")
+            return {**state, "classification": "video", "error": None}
         elif "normal" in classification_result: # Priorizar describe_image si ambas estuvieran por error
             print("Clasificación: normal")
             return {**state, "classification": "normal", "error": None}
@@ -212,6 +215,9 @@ def route_after_classification(state: GraphState) -> str:
             return "analyze_image"
         else: # El usuario quiere describir pero no dio imagen con este input
             return "request_image_prompt"
+    elif state["classification"] == "video":
+        # Tratamos 'video' como flujo normal (la app manejará el vídeo)
+        return "normal_response"
     else: # normal_response
         return "normal_response"
 

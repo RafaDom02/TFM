@@ -7,3 +7,12 @@ python-dotenv
 Pillow
 opencv-python
 streamlit
+streamlit-mic-recorder
+sounddevice
+scipy
+noisereduce
+openai-whisper
+edge-tts
+pydub
+webrtcvad-wheels
+faster_whisper

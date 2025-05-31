@@ -18,8 +18,10 @@ SYSTEM_PROMPT = (
 # Prompt para la clasificación de la entrada del usuario
 CLASSIFICATION_PROMPT_TEMPLATE = (
     "Dada la siguiente solicitud de un usuario a Jarvis, una plataforma robótica con cámara: \"{user_input}\"\n"
-    "¿La solicitud implica que Jarvis use su cámara para ver, observar, analizar o describir algo visualmente? "
-    "Responde con una ÚNICA palabra: 'describe_image' o 'normal'. NO incluyas ninguna otra palabra o explicación."
+    "¿La solicitud implica que Jarvis use su cámara para ver, observar, analizar o describir algo visualmente?\n"
+    "Además, si el usuario está pidiendo auxilio explícitamente (palabras como 'ayuda', 'socorro', 'auxilio', 'ahhhh', 'aquí'), se debe activar el modo de VÍDEO en tiempo real.\n"
+    "Responde con UNA ÚNICA palabra entre: 'video', 'describe_image' o 'normal'.\n"
+    "NO incluyas ninguna otra palabra o explicación."
 )
 
 # Prompt para la descripción de la imagen
