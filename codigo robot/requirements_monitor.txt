@@ -1,0 +1,30 @@
+# Requisitos para el Sistema de Monitorización del Robot (Python 3)
+
+# Web framework
+Flask>=2.0.0
+Werkzeug>=2.0.0
+
+# Audio processing
+faster-whisper>=0.3.0
+
+# HTTP requests
+requests>=2.25.1
+
+# Google Cloud APIs (para LLM)
+google-cloud-vision>=3.4.0
+langchain-google-genai>=1.0.0
+langgraph>=0.0.40
+
+# Audio utilities (si audio_utils.py necesita TTS)
+gtts>=2.3.0
+pygame>=2.1.0
+
+# Logging y utilities
+colorama>=0.4.4
+
+# Para manejar archivos temporales de forma más robusta
+tempfile  # Built-in module, no need to install
+
+# Testing y desarrollo
+pytest>=7.0.0
+pytest-flask>=1.2.0 

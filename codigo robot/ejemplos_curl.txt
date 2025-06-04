@@ -1,0 +1,246 @@
+===============================================================================
+                    EJEMPLOS DE CURL PARA CONTROL DEL ROBOT
+            API Flask para Robotnik Summit XL-HL - Python 2.7/ROS 1
+===============================================================================
+
+NOTA: Asegúrate de que la API esté ejecutándose antes de usar estos comandos:
+$ python2.7 robot_flask_api.py
+
+URL base: http://localhost:5000
+
+===============================================================================
+1. VERIFICAR ESTADO DEL ROBOT
+===============================================================================
+
+# Obtener estado actual del robot
+curl -X GET http://localhost:5000/robot/status
+
+# Obtener lista de movimientos disponibles
+curl -X GET http://localhost:5000/robot/movements
+
+===============================================================================
+2. MOVIMIENTOS BÁSICOS
+===============================================================================
+
+# Mover hacia adelante (velocidad y duración por defecto)
+curl -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "forward"}'
+
+# Mover hacia atrás
+curl -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "backward"}'
+
+# Giro a la derecha (in-place)
+curl -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "spin_right"}'
+
+# Giro a la izquierda (in-place)
+curl -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "spin_left"}'
+
+===============================================================================
+3. MOVIMIENTOS CON PARÁMETROS PERSONALIZADOS
+===============================================================================
+
+# Adelante con velocidad específica (0.5 m/s por 3 segundos)
+curl -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "forward", "velocity": 0.5, "duration": 3.0}'
+
+# Atrás con velocidad lenta (0.2 m/s por 2 segundos)
+curl -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "backward", "velocity": 0.2, "duration": 2.0}'
+
+# Giro rápido a la derecha (1.2 rad/s por 1 segundo)
+curl -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "spin_right", "angular_velocity": 1.2, "duration": 1.0}'
+
+# Giro lento a la izquierda (0.5 rad/s por 3 segundos)
+curl -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "spin_left", "angular_velocity": 0.5, "duration": 3.0}'
+
+===============================================================================
+4. MOVIMIENTOS DIAGONALES (ARCOS)
+===============================================================================
+
+# Adelante-derecha con ángulo por defecto (30°)
+curl -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "forward_right"}'
+
+# Adelante-izquierda con ángulo personalizado (45°)
+curl -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "forward_left", "angle": 45, "duration": 2.5}'
+
+# Adelante-derecha con velocidad y ángulo específicos
+curl -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "forward_right", "velocity": 0.4, "angle": 60, "duration": 3.0}'
+
+# Adelante-izquierda suave
+curl -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "forward_left", "velocity": 0.25, "angle": 20, "duration": 4.0}'
+
+===============================================================================
+5. MOVIMIENTOS PERSONALIZADOS
+===============================================================================
+
+# Movimiento custom: adelante y girando ligeramente a la derecha
+curl -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "custom", "velocity": 0.3, "angular_velocity": 0.2, "duration": 2.0}'
+
+# Movimiento custom: atrás girando a la izquierda
+curl -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "custom", "velocity": -0.2, "angular_velocity": 0.5, "duration": 1.5}'
+
+# Movimiento custom: solo giro sin avance
+curl -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "custom", "velocity": 0.0, "angular_velocity": 0.8, "duration": 2.0}'
+
+# Movimiento custom: solo avance sin giro
+curl -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "custom", "velocity": 0.6, "angular_velocity": 0.0, "duration": 2.5}'
+
+===============================================================================
+6. NAVEGACIÓN AUTÓNOMA (GOALS)
+===============================================================================
+
+# Enviar objetivo simple (x=2, y=1, orientación=0°)
+curl -X POST http://localhost:5000/robot/goal \
+  -H "Content-Type: application/json" \
+  -d '{"x": 2.0, "y": 1.0}'
+
+# Enviar objetivo con orientación específica (90° = mirando al norte)
+curl -X POST http://localhost:5000/robot/goal \
+  -H "Content-Type: application/json" \
+  -d '{"x": 2.0, "y": 1.5, "yaw": 90}'
+
+# Objetivo en el origen con orientación hacia el este (0°)
+curl -X POST http://localhost:5000/robot/goal \
+  -H "Content-Type: application/json" \
+  -d '{"x": 0.0, "y": 0.0, "yaw": 0}'
+
+# Objetivo lejano con orientación sur (270°)
+curl -X POST http://localhost:5000/robot/goal \
+  -H "Content-Type: application/json" \
+  -d '{"x": 5.0, "y": 3.0, "yaw": 270}'
+
+===============================================================================
+7. CONTROL DE PARADA
+===============================================================================
+
+# Detener inmediatamente el robot
+curl -X POST http://localhost:5000/robot/stop
+
+===============================================================================
+8. SECUENCIAS DE MOVIMIENTO EJEMPLO
+===============================================================================
+
+# Secuencia 1: Cuadrado
+echo "Ejecutando secuencia: Cuadrado"
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" -d '{"movement": "forward", "velocity": 0.3, "duration": 2.0}'
+sleep 3
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" -d '{"movement": "spin_left", "angular_velocity": 0.785, "duration": 2.0}'
+sleep 3
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" -d '{"movement": "forward", "velocity": 0.3, "duration": 2.0}'
+sleep 3
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" -d '{"movement": "spin_left", "angular_velocity": 0.785, "duration": 2.0}'
+sleep 3
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" -d '{"movement": "forward", "velocity": 0.3, "duration": 2.0}'
+sleep 3
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" -d '{"movement": "spin_left", "angular_velocity": 0.785, "duration": 2.0}'
+sleep 3
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" -d '{"movement": "forward", "velocity": 0.3, "duration": 2.0}'
+
+# Secuencia 2: Zigzag
+echo "Ejecutando secuencia: Zigzag"
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" -d '{"movement": "forward_right", "velocity": 0.3, "angle": 30, "duration": 2.0}'
+sleep 3
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" -d '{"movement": "forward_left", "velocity": 0.3, "angle": 30, "duration": 2.0}'
+sleep 3
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" -d '{"movement": "forward_right", "velocity": 0.3, "angle": 30, "duration": 2.0}'
+sleep 3
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" -d '{"movement": "forward_left", "velocity": 0.3, "angle": 30, "duration": 2.0}'
+
+# Secuencia 3: Círculo
+echo "Ejecutando secuencia: Círculo"
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" -d '{"movement": "custom", "velocity": 0.3, "angular_velocity": 0.5, "duration": 12.56}'
+
+===============================================================================
+9. COMANDOS DE DEPURACIÓN
+===============================================================================
+
+# Verificar si la API está funcionando
+curl -f http://localhost:5000/robot/status || echo "API no disponible"
+
+# Mostrar respuesta detallada con headers
+curl -v -X GET http://localhost:5000/robot/movements
+
+# Guardar respuesta en archivo
+curl -X GET http://localhost:5000/robot/status > robot_status.json
+
+# Enviar movimiento y mostrar solo el código de estado
+curl -w "%{http_code}\n" -o /dev/null -s -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "forward", "duration": 1.0}'
+
+===============================================================================
+10. EJEMPLOS CON VARIABLES BASH
+===============================================================================
+
+# Definir variables para uso repetido
+BASE_URL="http://localhost:5000"
+HEADERS="-H Content-Type: application/json"
+
+# Usar variables en comandos
+curl -X POST $BASE_URL/robot/move $HEADERS -d '{"movement": "forward", "velocity": 0.4}'
+
+# Función bash para enviar movimientos
+move_robot() {
+    curl -X POST $BASE_URL/robot/move $HEADERS -d "{\"movement\": \"$1\", \"velocity\": $2, \"duration\": $3}"
+}
+
+# Usar la función
+# move_robot "forward" 0.5 2.0
+# move_robot "spin_right" 0.0 1.5
+
+===============================================================================
+NOTAS IMPORTANTES:
+===============================================================================
+
+1. Velocidades típicas:
+   - Velocidad lineal: 0.1 - 1.0 m/s (recomendado: 0.2 - 0.5 m/s)
+   - Velocidad angular: 0.1 - 2.0 rad/s (recomendado: 0.3 - 1.0 rad/s)
+
+2. Duraciones recomendadas:
+   - Movimientos cortos: 1.0 - 2.0 segundos
+   - Movimientos normales: 2.0 - 5.0 segundos
+   - Movimientos largos: 5.0+ segundos
+
+3. Ángulos para movimientos diagonales:
+   - Suave: 15° - 30°
+   - Moderado: 30° - 60°
+   - Pronunciado: 60° - 90°
+
+4. Códigos de respuesta HTTP:
+   - 200: Éxito
+   - 400: Error en parámetros
+   - 500: Error interno del servidor
+
+5. Para detener un movimiento en curso, usa siempre:
+   curl -X POST http://localhost:5000/robot/stop
+
+=============================================================================== 
