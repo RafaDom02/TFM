@@ -244,3 +244,485 @@ NOTAS IMPORTANTES:
    curl -X POST http://localhost:5000/robot/stop
 
 =============================================================================== 
+11. CONTROL DE CÁMARA DEL ROBOT
+===============================================================================
+
+# Verificar estado de la cámara
+curl -X GET http://localhost:5000/robot/camera/status
+
+# Capturar imagen desde la cámara del robot
+curl -X POST http://localhost:5000/robot/camera/capture \
+  -o robot_image_$(date +%Y%m%d_%H%M%S).json
+
+# Capturar imagen para detección de personas
+curl -X POST http://localhost:5000/robot/camera/detect_people \
+  -H "Content-Type: application/json" \
+  -d '{"return_image": true}' \
+  -o people_detection_$(date +%Y%m%d_%H%M%S).json
+
+# Capturar imagen sin incluir datos de imagen (solo metadatos)
+curl -X POST http://localhost:5000/robot/camera/detect_people \
+  -H "Content-Type: application/json" \
+  -d '{"return_image": false}'
+
+# Extraer imagen base64 y convertir a archivo
+curl -X POST http://localhost:5000/robot/camera/capture | \
+  jq -r '.image_data' | base64 -d > captured_image.jpg
+
+===============================================================================
+12. CONTROL DE AUDIO DEL ROBOT
+===============================================================================
+
+# Verificar estado del sistema de audio
+curl -X GET http://localhost:5000/robot/audio/status
+
+# Grabar audio del robot (5 segundos por defecto)
+curl -X POST http://localhost:5000/robot/audio/capture \
+  -o robot_audio_$(date +%Y%m%d_%H%M%S).json
+
+# Grabar audio con duración personalizada (10 segundos)
+curl -X POST http://localhost:5000/robot/audio/capture \
+  -H "Content-Type: application/json" \
+  -d '{"duration": 10, "sample_rate": 16000}' \
+  -o long_audio.json
+
+# Grabar audio con alta calidad (44.1kHz)
+curl -X POST http://localhost:5000/robot/audio/capture \
+  -H "Content-Type: application/json" \
+  -d '{"duration": 5, "sample_rate": 44100}' \
+  -o hq_audio.json
+
+# Reproducir texto como voz (TTS) en español
+curl -X POST http://localhost:5000/robot/audio/play \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hola, soy el robot Summit. Estoy funcionando correctamente."}'
+
+# TTS con voz específica y velocidad
+curl -X POST http://localhost:5000/robot/audio/play \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Mensaje de prueba del robot", "voice": "es+f3"}'
+
+# Reproducir audio desde archivo base64 (ejemplo conceptual)
+# AUDIO_B64=$(base64 -w 0 mi_audio.wav)
+# curl -X POST http://localhost:5000/robot/audio/play \
+#   -H "Content-Type: application/json" \
+#   -d "{\"audio_data\": \"$AUDIO_B64\", \"audio_format\": \"wav\"}"
+
+# Extraer audio grabado y guardar como archivo WAV
+curl -X POST http://localhost:5000/robot/audio/capture | \
+  jq -r '.audio_data' | base64 -d > robot_recording.wav
+
+===============================================================================
+13. SECUENCIAS AVANZADAS DE MOVIMIENTO
+===============================================================================
+
+# Secuencia 4: Exploración en espiral
+echo "Ejecutando secuencia: Espiral"
+for i in {1..5}; do
+  duration=$(echo "scale=1; $i * 0.5" | bc)
+  velocity=$(echo "scale=2; 0.2 + $i * 0.05" | bc)
+  curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" \
+    -d "{\"movement\": \"forward\", \"velocity\": $velocity, \"duration\": $duration}"
+  sleep $(echo "$duration + 1" | bc)
+  curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" \
+    -d '{"movement": "spin_left", "angular_velocity": 0.785, "duration": 1.0}'
+  sleep 2
+done
+
+# Secuencia 5: Patrullaje perimetral
+echo "Ejecutando secuencia: Patrullaje"
+PATROL_POINTS=(
+  '{"x": 0.0, "y": 0.0, "yaw": 0}'
+  '{"x": 3.0, "y": 0.0, "yaw": 90}'
+  '{"x": 3.0, "y": 3.0, "yaw": 180}'
+  '{"x": 0.0, "y": 3.0, "yaw": 270}'
+)
+
+for point in "${PATROL_POINTS[@]}"; do
+  echo "Enviando robot a punto: $point"
+  curl -X POST http://localhost:5000/robot/goal -H "Content-Type: application/json" -d "$point"
+  sleep 10  # Esperar a que llegue al punto
+done
+
+# Secuencia 6: Danza del robot
+echo "Ejecutando secuencia: Danza"
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" -d '{"movement": "spin_right", "angular_velocity": 1.0, "duration": 2.0}'
+sleep 3
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" -d '{"movement": "spin_left", "angular_velocity": 1.0, "duration": 2.0}'
+sleep 3
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" -d '{"movement": "forward", "velocity": 0.5, "duration": 1.0}'
+sleep 2
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" -d '{"movement": "backward", "velocity": 0.5, "duration": 1.0}'
+sleep 2
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" -d '{"movement": "custom", "velocity": 0.3, "angular_velocity": 1.5, "duration": 3.0}'
+
+# Secuencia 7: Movimiento en forma de "8"
+echo "Ejecutando secuencia: Figura 8"
+# Primera curva
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" \
+  -d '{"movement": "custom", "velocity": 0.3, "angular_velocity": 0.5, "duration": 6.28}'
+sleep 7
+# Segunda curva (dirección opuesta)
+curl -X POST http://localhost:5000/robot/move -H "Content-Type: application/json" \
+  -d '{"movement": "custom", "velocity": 0.3, "angular_velocity": -0.5, "duration": 6.28}'
+
+===============================================================================
+14. TESTING Y MONITOREO AVANZADO
+===============================================================================
+
+# Test completo del sistema
+echo "=== TEST COMPLETO DEL ROBOT ==="
+
+# 1. Verificar conectividad básica
+echo "1. Verificando conectividad..."
+curl -f http://localhost:5000/robot/status && echo "✓ API disponible" || echo "✗ API no disponible"
+
+# 2. Test de movimientos básicos
+echo "2. Probando movimientos básicos..."
+MOVEMENTS=("forward" "backward" "spin_left" "spin_right")
+for movement in "${MOVEMENTS[@]}"; do
+  echo "   Probando: $movement"
+  HTTP_CODE=$(curl -w "%{http_code}" -o /dev/null -s -X POST http://localhost:5000/robot/move \
+    -H "Content-Type: application/json" -d "{\"movement\": \"$movement\", \"duration\": 0.5}")
+  if [ "$HTTP_CODE" -eq 200 ]; then
+    echo "   ✓ $movement OK"
+  else
+    echo "   ✗ $movement FALLO ($HTTP_CODE)"
+  fi
+  sleep 1
+done
+
+# 3. Test de cámara
+echo "3. Probando cámara..."
+curl -f http://localhost:5000/robot/camera/status && echo "   ✓ Cámara OK" || echo "   ✗ Cámara FALLO"
+
+# 4. Test de audio
+echo "4. Probando audio..."
+curl -f http://localhost:5000/robot/audio/status && echo "   ✓ Audio OK" || echo "   ✗ Audio FALLO"
+
+# 5. Test de parada de emergencia
+echo "5. Probando parada de emergencia..."
+curl -f -X POST http://localhost:5000/robot/stop && echo "   ✓ Stop OK" || echo "   ✗ Stop FALLO"
+
+echo "=== FIN DEL TEST ==="
+
+# Monitoreo continuo del estado
+echo "Iniciando monitoreo continuo (Ctrl+C para detener)..."
+while true; do
+  STATUS=$(curl -s http://localhost:5000/robot/status)
+  if [ $? -eq 0 ]; then
+    IS_MOVING=$(echo "$STATUS" | jq -r '.is_moving')
+    TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[$TIMESTAMP] Estado: En movimiento=$IS_MOVING"
+  else
+    echo "[$TIMESTAMP] ERROR: No se puede conectar con el robot"
+  fi
+  sleep 5
+done
+
+# Benchmark de velocidades
+echo "=== BENCHMARK DE VELOCIDADES ==="
+VELOCITIES=(0.1 0.2 0.3 0.4 0.5)
+for vel in "${VELOCITIES[@]}"; do
+  echo "Probando velocidad: ${vel} m/s"
+  TIME_START=$(date +%s.%N)
+  curl -s -X POST http://localhost:5000/robot/move \
+    -H "Content-Type: application/json" \
+    -d "{\"movement\": \"forward\", \"velocity\": $vel, \"duration\": 2.0}" > /dev/null
+  sleep 3
+  TIME_END=$(date +%s.%N)
+  TOTAL_TIME=$(echo "$TIME_END - $TIME_START" | bc)
+  echo "Tiempo total: ${TOTAL_TIME}s"
+done
+
+===============================================================================
+15. SCRIPTS UTILES DE AUTOMATIZACIÓN
+===============================================================================
+
+# Script para calibración de movimientos
+cat << 'EOF' > calibrate_robot.sh
+#!/bin/bash
+echo "=== CALIBRACIÓN DEL ROBOT ==="
+
+# Test de distancias
+echo "Calibrando distancias..."
+for duration in 1 2 3 4 5; do
+  echo "Movimiento ${duration}s hacia adelante"
+  curl -s -X POST http://localhost:5000/robot/move \
+    -H "Content-Type: application/json" \
+    -d "{\"movement\": \"forward\", \"velocity\": 0.3, \"duration\": $duration}" > /dev/null
+  read -p "Presiona Enter cuando el robot se haya detenido..." 
+  read -p "¿Cuántos metros avanzó? " distance
+  speed=$(echo "scale=3; $distance / $duration" | bc)
+  echo "Velocidad real: ${speed} m/s"
+  echo "${duration}s -> ${distance}m -> ${speed}m/s" >> calibration_log.txt
+done
+
+echo "Calibración completada. Ver calibration_log.txt"
+EOF
+chmod +x calibrate_robot.sh
+
+# Script para rutina de limpieza
+cat << 'EOF' > cleaning_routine.sh
+#!/bin/bash
+echo "=== RUTINA DE LIMPIEZA AUTOMÁTICA ==="
+
+# Patrón de limpieza en líneas paralelas
+LINES=5
+LINE_LENGTH=3.0
+SEPARATION=0.5
+
+for ((i=0; i<$LINES; i++)); do
+  y_pos=$(echo "scale=1; $i * $SEPARATION" | bc)
+  echo "Línea $((i+1)): y=$y_pos"
+  
+  # Ir al inicio de la línea
+  curl -s -X POST http://localhost:5000/robot/goal \
+    -H "Content-Type: application/json" \
+    -d "{\"x\": 0.0, \"y\": $y_pos, \"yaw\": 0}" > /dev/null
+  sleep 8
+  
+  # Recorrer la línea
+  curl -s -X POST http://localhost:5000/robot/move \
+    -H "Content-Type: application/json" \
+    -d "{\"movement\": \"forward\", \"velocity\": 0.2, \"duration\": 15}" > /dev/null
+  sleep 16
+done
+
+echo "Rutina de limpieza completada"
+EOF
+chmod +x cleaning_routine.sh
+
+# Script de backup de configuración
+cat << 'EOF' > backup_robot_config.sh
+#!/bin/bash
+BACKUP_DIR="robot_backup_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$BACKUP_DIR"
+
+echo "Creando backup en $BACKUP_DIR..."
+
+# Guardar estado actual
+curl -s http://localhost:5000/robot/status > "$BACKUP_DIR/status.json"
+curl -s http://localhost:5000/robot/movements > "$BACKUP_DIR/movements.json"
+curl -s http://localhost:5000/robot/camera/status > "$BACKUP_DIR/camera_status.json"
+curl -s http://localhost:5000/robot/audio/status > "$BACKUP_DIR/audio_status.json"
+
+# Capturar imagen actual
+curl -s -X POST http://localhost:5000/robot/camera/capture > "$BACKUP_DIR/current_view.json"
+
+echo "Backup completado en $BACKUP_DIR"
+EOF
+chmod +x backup_robot_config.sh
+
+===============================================================================
+16. TROUBLESHOOTING Y DIAGNÓSTICOS
+===============================================================================
+
+# Diagnóstico completo del sistema
+echo "=== DIAGNÓSTICO DEL ROBOT ==="
+
+# Verificar conectividad de red
+echo "1. Verificando conectividad de red..."
+ping -c 3 localhost && echo "✓ Red OK" || echo "✗ Problema de red"
+
+# Verificar puertos
+echo "2. Verificando puertos..."
+netstat -tlnp | grep :5000 && echo "✓ Puerto 5000 activo" || echo "✗ Puerto 5000 no disponible"
+
+# Verificar procesos ROS
+echo "3. Verificando ROS..."
+ps aux | grep ros && echo "✓ ROS ejecutándose" || echo "✗ ROS no encontrado"
+
+# Test de latencia
+echo "4. Midiendo latencia de la API..."
+for i in {1..5}; do
+  START_TIME=$(date +%s.%N)
+  curl -s http://localhost:5000/robot/status > /dev/null
+  END_TIME=$(date +%s.%N)
+  LATENCY=$(echo "($END_TIME - $START_TIME) * 1000" | bc)
+  echo "   Intento $i: ${LATENCY}ms"
+done
+
+# Test de carga
+echo "5. Test de carga (10 peticiones paralelas)..."
+for i in {1..10}; do
+  curl -s http://localhost:5000/robot/status > /dev/null &
+done
+wait
+echo "   ✓ Test de carga completado"
+
+# Verificar logs de errores
+echo "6. Últimos errores en logs..."
+if [ -f "robot_monitor.log" ]; then
+  tail -n 10 robot_monitor.log | grep -i error
+else
+  echo "   No se encontró archivo de log"
+fi
+
+# Verificar recursos del sistema
+echo "7. Recursos del sistema..."
+echo "   CPU: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1)%"
+echo "   RAM: $(free -m | awk 'NR==2{printf "%.1f%%", $3*100/$2}')"
+echo "   Disco: $(df -h / | awk 'NR==2{print $5}')"
+
+# Generar reporte de diagnóstico
+cat << EOF > diagnostic_report.txt
+=== REPORTE DE DIAGNÓSTICO - $(date) ===
+
+ESTADO DE LA API:
+$(curl -s http://localhost:5000/robot/status)
+
+ESTADO DE CÁMARA:
+$(curl -s http://localhost:5000/robot/camera/status)
+
+ESTADO DE AUDIO:
+$(curl -s http://localhost:5000/robot/audio/status)
+
+MOVIMIENTOS DISPONIBLES:
+$(curl -s http://localhost:5000/robot/movements)
+
+PROCESOS ROS:
+$(ps aux | grep ros)
+
+PUERTOS ACTIVOS:
+$(netstat -tlnp | grep 5000)
+
+=== FIN DEL REPORTE ===
+EOF
+
+echo "Reporte generado: diagnostic_report.txt"
+
+# Recovery automático
+echo "=== PROCEDIMIENTO DE RECOVERY ==="
+echo "1. Deteniendo el robot..."
+curl -s -X POST http://localhost:5000/robot/stop
+
+echo "2. Esperando 3 segundos..."
+sleep 3
+
+echo "3. Verificando estado post-stop..."
+STATUS_AFTER_STOP=$(curl -s http://localhost:5000/robot/status | jq -r '.is_moving')
+if [ "$STATUS_AFTER_STOP" == "false" ]; then
+  echo "✓ Robot detenido correctamente"
+else
+  echo "✗ Robot aún en movimiento - intervención manual requerida"
+fi
+
+echo "4. Test de movimiento de recovery..."
+curl -s -X POST http://localhost:5000/robot/move \
+  -H "Content-Type: application/json" \
+  -d '{"movement": "forward", "velocity": 0.1, "duration": 0.5}' > /dev/null
+sleep 1
+
+echo "✓ Procedimiento de recovery completado"
+
+===============================================================================
+17. INTEGRACIÓN CON SISTEMAS EXTERNOS
+===============================================================================
+
+# Webhook para notificaciones
+cat << 'EOF' > robot_webhook.sh
+#!/bin/bash
+# Webhook que notifica cambios de estado del robot
+
+WEBHOOK_URL="https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+PREVIOUS_STATUS=""
+
+while true; do
+  CURRENT_STATUS=$(curl -s http://localhost:5000/robot/status | jq -r '.is_moving')
+  
+  if [ "$CURRENT_STATUS" != "$PREVIOUS_STATUS" ]; then
+    if [ "$CURRENT_STATUS" == "true" ]; then
+      MESSAGE="🤖 Robot iniciado movimiento"
+    else
+      MESSAGE="🛑 Robot detenido"
+    fi
+    
+    # Enviar notificación (ejemplo para Slack)
+    curl -X POST "$WEBHOOK_URL" \
+      -H 'Content-type: application/json' \
+      -d "{\"text\":\"$MESSAGE - $(date)\"}"
+  fi
+  
+  PREVIOUS_STATUS="$CURRENT_STATUS"
+  sleep 5
+done
+EOF
+
+# Integración con base de datos
+cat << 'EOF' > log_to_database.sh
+#!/bin/bash
+# Script para loggear actividad del robot en base de datos
+
+DB_FILE="robot_activity.db"
+
+# Crear tabla si no existe
+sqlite3 "$DB_FILE" "CREATE TABLE IF NOT EXISTS robot_logs (
+  timestamp DATETIME,
+  status TEXT,
+  is_moving BOOLEAN,
+  action TEXT
+);"
+
+while true; do
+  RESPONSE=$(curl -s http://localhost:5000/robot/status)
+  IS_MOVING=$(echo "$RESPONSE" | jq -r '.is_moving')
+  TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+  
+  # Insertar en base de datos
+  sqlite3 "$DB_FILE" "INSERT INTO robot_logs VALUES (
+    '$TIMESTAMP',
+    'active',
+    $IS_MOVING,
+    'status_check'
+  );"
+  
+  sleep 10
+done
+EOF
+
+# API Gateway / Proxy
+cat << 'EOF' > robot_proxy.py
+#!/usr/bin/env python3
+"""
+Proxy/Gateway para el robot API con autenticación y rate limiting
+"""
+from flask import Flask, request, jsonify
+import requests
+import time
+from functools import wraps
+
+app = Flask(__name__)
+ROBOT_URL = "http://localhost:5000"
+RATE_LIMIT = {}  # Simple rate limiting
+
+def rate_limit_check(ip):
+    current_time = time.time()
+    if ip in RATE_LIMIT:
+        if current_time - RATE_LIMIT[ip] < 1:  # 1 segundo entre requests
+            return False
+    RATE_LIMIT[ip] = current_time
+    return True
+
+@app.route('/api/robot/<path:endpoint>', methods=['GET', 'POST'])
+def proxy_to_robot(endpoint):
+    client_ip = request.remote_addr
+    
+    # Rate limiting
+    if not rate_limit_check(client_ip):
+        return jsonify({"error": "Rate limit exceeded"}), 429
+    
+    # Forward request to robot
+    url = f"{ROBOT_URL}/robot/{endpoint}"
+    if request.method == 'GET':
+        response = requests.get(url)
+    else:
+        response = requests.post(url, json=request.json)
+    
+    return jsonify(response.json()), response.status_code
+
+if __name__ == '__main__':
+    app.run(port=8080, debug=True)
+EOF
+
+=============================================================================== 

@@ -19,6 +19,47 @@ import rospy
 import tf.transformations as tft
 from flask import Flask, request, jsonify
 from geometry_msgs.msg import Twist, PoseStamped, Quaternion
+import subprocess
+import tempfile
+import os
+import base64
+import sys
+import collections
+
+
+# -----------------------------------------------------------------------------
+# Compatibilidad Python 2.7
+# -----------------------------------------------------------------------------
+# 1) Back-port mínimo de subprocess.run (disponible desde Python 3.5).
+#    Solo se cubren los argumentos utilizados en este archivo: capture_output,
+#    text y timeout.
+# 2) Mantener la API original para evitar cambios extensivos en el código más
+#    abajo.
+if not hasattr(subprocess, 'run'):
+    def _subprocess_run(cmd, capture_output=False, text=False, timeout=None):
+        """Versión simplificada de subprocess.run para Python 2.7."""
+        stdout_pipe = subprocess.PIPE if capture_output else None
+        stderr_pipe = subprocess.PIPE if capture_output else None
+
+        proc = subprocess.Popen(cmd, stdout=stdout_pipe, stderr=stderr_pipe)
+
+        try:
+            # Python 2.7 no soporta el argumento timeout en communicate.
+            out, err = proc.communicate(timeout=timeout)  # type: ignore
+        except TypeError:  # pragma: no cover – timeout no soportado
+            out, err = proc.communicate()
+
+        if text:
+            if out is not None:
+                out = out.decode('utf-8', 'ignore')
+            if err is not None:
+                err = err.decode('utf-8', 'ignore')
+
+        CompletedProcess = collections.namedtuple('CompletedProcess',
+                                                 ['returncode', 'stdout', 'stderr'])
+        return CompletedProcess(proc.returncode, out, err)
+
+    subprocess.run = _subprocess_run  # type: ignore
 
 
 # ─────────── utilidades PoseStamped ───────────
@@ -325,9 +366,10 @@ def capture_image():
                 'timestamp': rospy.Time.now().to_sec()
             }), 500
         
-        # Guardar imagen temporal en el robot
-        os.makedirs("temp_images", exist_ok=True)
-        temp_filename = f"temp_robot_capture_{uuid.uuid4()}.jpg"
+        # Crear carpeta temporal si no existe (Python 2 no soporta exist_ok)
+        if not os.path.exists("temp_images"):
+            os.makedirs("temp_images")
+        temp_filename = "temp_robot_capture_{}.jpg".format(uuid.uuid4())
         temp_path = os.path.join("temp_images", temp_filename)
         
         success = cv2.imwrite(temp_path, frame)
@@ -351,7 +393,7 @@ def capture_image():
         # Obtener dimensiones de la imagen
         height, width, channels = frame.shape
         
-        rospy.loginfo(f"Imagen capturada desde cámara del robot: {width}x{height}")
+        rospy.loginfo("Imagen capturada desde cámara del robot: {}x{}".format(width, height))
         
         return jsonify({
             'status': 'success',
@@ -365,9 +407,9 @@ def capture_image():
         })
         
     except Exception as e:
-        rospy.logerr(f"Error capturando imagen: {e}")
+        rospy.logerr("Error capturando imagen: {}".format(e))
         return jsonify({
-            'error': f'Error interno al capturar imagen: {str(e)}',
+            'error': 'Error interno al capturar imagen: {}'.format(str(e)),
             'timestamp': rospy.Time.now().to_sec()
         }), 500
 
@@ -425,7 +467,7 @@ def detect_people_camera():
                 img_base64 = base64.b64encode(buf.tobytes()).decode('utf-8')
                 result['image_data'] = img_base64
                 result['image_format'] = 'jpeg'
-                rospy.loginfo(f"Frame capturado y codificado para detección remota: {w}x{h}")
+                rospy.loginfo("Frame capturado y codificado para detección remota: {}x{}".format(w, h))
             else:
                 return jsonify({
                     'error': 'Error al codificar imagen para envío',
@@ -435,9 +477,9 @@ def detect_people_camera():
         return jsonify(result)
         
     except Exception as e:
-        rospy.logerr(f"Error en detect_people_camera: {e}")
+        rospy.logerr("Error en detect_people_camera: {}".format(e))
         return jsonify({
-            'error': f'Error interno: {str(e)}',
+            'error': 'Error interno: {}'.format(str(e)),
             'timestamp': rospy.Time.now().to_sec()
         }), 500
 
@@ -476,7 +518,261 @@ def camera_status():
     except Exception as e:
         return jsonify({
             'status': 'error',
-            'message': f'Error verificando cámara: {str(e)}',
+            'message': 'Error verificando cámara: {}'.format(str(e)),
+            'timestamp': rospy.Time.now().to_sec()
+        }), 500
+
+
+# ================================
+# ENDPOINTS DE AUDIO DEL ROBOT
+# ================================
+
+@app.route('/robot/audio/capture', methods=['POST'])
+def capture_audio():
+    """
+    Captura audio desde el micrófono del robot.
+    
+    Parámetros JSON (opcionales):
+    - duration: duración de la grabación en segundos (default: 5)
+    - sample_rate: frecuencia de muestreo (default: 16000)
+    
+    Returns:
+        JSON con el audio en base64
+    """
+    try:
+        data = request.get_json() or {}
+        duration = data.get('duration', 5)  # 5 segundos por defecto
+        sample_rate = data.get('sample_rate', 16000)  # 16kHz por defecto
+        
+        # Crear archivo temporal para la grabación
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
+            temp_path = temp_file.name
+        
+        # Comando para grabar audio con arecord (ALSA)
+        cmd = [
+            'arecord',
+            '-f', 'S16_LE',  # 16-bit little-endian
+            '-c', '1',       # mono
+            '-r', str(sample_rate),  # sample rate
+            '-t', 'wav',     # formato WAV
+            '-d', str(duration),  # duración
+            temp_path
+        ]
+        
+        rospy.loginfo("Grabando audio por {} segundos...".format(duration))
+        
+        # Ejecutar comando de grabación
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            # Limpiar archivo temporal
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            return jsonify({
+                'error': 'Error al grabar audio: {}'.format(result.stderr),
+                'timestamp': rospy.Time.now().to_sec()
+            }), 500
+        
+        # Verificar que se creó el archivo
+        if not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            return jsonify({
+                'error': 'No se pudo grabar audio o archivo vacío',
+                'timestamp': rospy.Time.now().to_sec()
+            }), 500
+        
+        # Leer y codificar audio en base64
+        with open(temp_path, 'rb') as audio_file:
+            audio_data = audio_file.read()
+            audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+        
+        # Limpiar archivo temporal
+        os.remove(temp_path)
+        
+        rospy.loginfo("Audio capturado exitosamente: {} bytes".format(len(audio_data)))
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Audio grabado por {} segundos'.format(duration),
+            'audio_data': audio_base64,
+            'audio_format': 'wav',
+            'duration': duration,
+            'sample_rate': sample_rate,
+            'size_bytes': len(audio_data),
+            'timestamp': rospy.Time.now().to_sec()
+        })
+        
+    except Exception as e:
+        rospy.logerr("Error capturando audio: {}".format(e))
+        return jsonify({
+            'error': 'Error interno al capturar audio: {}'.format(str(e)),
+            'timestamp': rospy.Time.now().to_sec()
+        }), 500
+
+@app.route('/robot/audio/play', methods=['POST'])
+def play_audio():
+    """
+    Reproduce audio en el robot.
+    
+    Parámetros JSON:
+    - audio_data: datos de audio en base64
+    - audio_format: formato del audio (wav, mp3, etc.)
+    
+    O alternativamente:
+    - text: texto para convertir a voz (TTS)
+    - voice: voz a usar para TTS (opcional)
+    
+    Returns:
+        JSON con resultado de la reproducción
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'No se proporcionaron datos JSON'}), 400
+        
+        temp_path = None
+        
+        # Modo 1: Reproducir audio desde base64
+        if 'audio_data' in data:
+            audio_base64 = data.get('audio_data')
+            audio_format = data.get('audio_format', 'wav')
+            
+            if not audio_base64:
+                return jsonify({'error': 'audio_data no puede estar vacío'}), 400
+            
+            # Decodificar audio
+            try:
+                audio_bytes = base64.b64decode(audio_base64)
+            except Exception as e:
+                return jsonify({'error': 'Error decodificando audio base64: {}'.format(str(e))}), 400
+            
+            # Crear archivo temporal
+            with tempfile.NamedTemporaryFile(suffix='.' + audio_format, delete=False) as temp_file:
+                temp_path = temp_file.name
+                temp_file.write(audio_bytes)
+            
+            rospy.loginfo("Reproduciendo audio desde base64: {} bytes".format(len(audio_bytes)))
+        
+        # Modo 2: Text-to-Speech
+        elif 'text' in data:
+            text = data.get('text', '').strip()
+            voice = data.get('voice', 'es')  # Español por defecto
+            
+            if not text:
+                return jsonify({'error': 'text no puede estar vacío'}), 400
+            
+            # Crear archivo temporal para TTS
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
+                temp_path = temp_file.name
+            
+            # Comando espeak para TTS
+            cmd = [
+                'espeak',
+                '-v', voice,
+                '-s', '150',  # velocidad
+                '-w', temp_path,  # escribir a archivo
+                text
+            ]
+            
+            rospy.loginfo("Generando TTS para: '{}...'".format(text[:50]))
+            
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                if temp_path and os.path.exists(temp_path):
+                    os.remove(temp_path)
+                return jsonify({
+                    'error': 'Error generando TTS: {}'.format(result.stderr),
+                    'timestamp': rospy.Time.now().to_sec()
+                }), 500
+        
+        else:
+            return jsonify({'error': 'Se requiere audio_data o text'}), 400
+        
+        # Reproducir audio con aplay
+        if temp_path and os.path.exists(temp_path):
+            cmd_play = ['aplay', temp_path]
+            result = subprocess.run(cmd_play, capture_output=True, text=True)
+            
+            # Limpiar archivo temporal
+            os.remove(temp_path)
+            
+            if result.returncode != 0:
+                return jsonify({
+                    'error': 'Error reproduciendo audio: {}'.format(result.stderr),
+                    'timestamp': rospy.Time.now().to_sec()
+                }), 500
+            
+            rospy.loginfo("Audio reproducido exitosamente")
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'Audio reproducido correctamente',
+                'timestamp': rospy.Time.now().to_sec()
+            })
+        else:
+            return jsonify({
+                'error': 'No se pudo crear archivo de audio temporal',
+                'timestamp': rospy.Time.now().to_sec()
+            }), 500
+            
+    except Exception as e:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+        rospy.logerr("Error reproduciendo audio: {}".format(e))
+        return jsonify({
+            'error': 'Error interno al reproducir audio: {}'.format(str(e)),
+            'timestamp': rospy.Time.now().to_sec()
+        }), 500
+
+@app.route('/robot/audio/status', methods=['GET'])
+def audio_status():
+    """Verifica el estado del sistema de audio del robot."""
+    try:
+        status_info = {
+            'microphone': 'unknown',
+            'speakers': 'unknown',
+            'tts_available': False,
+            'timestamp': rospy.Time.now().to_sec()
+        }
+        
+        # Verificar micrófono (arecord)
+        try:
+            result = subprocess.run(['arecord', '--list-devices'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and 'card' in result.stdout.lower():
+                status_info['microphone'] = 'available'
+            else:
+                status_info['microphone'] = 'unavailable'
+        except:
+            status_info['microphone'] = 'error'
+        
+        # Verificar altavoces (aplay)
+        try:
+            result = subprocess.run(['aplay', '--list-devices'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and 'card' in result.stdout.lower():
+                status_info['speakers'] = 'available'
+            else:
+                status_info['speakers'] = 'unavailable'
+        except:
+            status_info['speakers'] = 'error'
+        
+        # Verificar espeak para TTS
+        try:
+            result = subprocess.run(['espeak', '--version'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                status_info['tts_available'] = True
+        except:
+            status_info['tts_available'] = False
+        
+        return jsonify(status_info)
+        
+    except Exception as e:
+        return jsonify({
+            'error': 'Error verificando estado de audio: {}'.format(str(e)),
             'timestamp': rospy.Time.now().to_sec()
         }), 500
 
@@ -492,5 +788,8 @@ if __name__ == '__main__':
     print("  POST /robot/camera/capture - Capturar imagen desde cámara del robot")
     print("  POST /robot/camera/detect_people - Detectar personas y obtener dirección")
     print("  GET /robot/camera/status - Estado de la cámara del robot")
+    print("  POST /robot/audio/capture - Capturar audio desde micrófono del robot")
+    print("  POST /robot/audio/play - Reproducir audio/TTS en el robot")
+    print("  GET /robot/audio/status - Estado del sistema de audio del robot")
     
     app.run(host='0.0.0.0', port=5000, debug=True) 

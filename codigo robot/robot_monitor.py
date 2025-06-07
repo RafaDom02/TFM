@@ -67,6 +67,13 @@ ROBOT_API_BASE_URL = "http://localhost:5000"  # URL del robot_flask_api.py
 WHISPER_MODEL_SIZE = "small"  # Modelo Whisper a usar
 MAX_AUDIO_QUEUE_SIZE = 10  # Máximo de audios en cola
 PROCESSING_TIMEOUT = 30  # Timeout para procesamiento en segundos
+AUDIO_POLL_DURATION = 5  # Segundos de grabación por captura
+AUDIO_POLL_INTERVAL = 1  # Tiempo de espera entre capturas
+
+# Flags y manejadores para captura de audio automática
+audio_capture_active = False
+audio_capture_thread = None
+audio_capture_stop_event = threading.Event()
 
 # Inicializar Flask
 app = Flask(__name__)
@@ -1307,6 +1314,78 @@ class CentroidTracker:
                 continue
 
         return best_match_id
+
+def robot_audio_capture_loop(duration=AUDIO_POLL_DURATION, interval=AUDIO_POLL_INTERVAL, sample_rate=16000):
+    """Hilo que solicita audio al robot de forma continua hasta que se detenga."""
+    global audio_capture_active
+    logger.info(f"▶️ Iniciando captura continua de audio del robot (chunk={duration}s, interval={interval}s)...")
+    while not audio_capture_stop_event.is_set():
+        try:
+            response = requests.post(
+                f"{ROBOT_API_BASE_URL}/robot/audio/capture",
+                json={"duration": duration, "sample_rate": sample_rate},
+                timeout=duration + 10
+            )
+            timestamp = datetime.now().isoformat()
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('status') == 'success':
+                    import base64
+                    audio_b64 = data.get('audio_data')
+                    if audio_b64:
+                        audio_bytes = base64.b64decode(audio_b64)
+                        # Enqueue for processing
+                        try:
+                            if audio_queue.full():
+                                audio_queue.get_nowait()
+                            audio_queue.put_nowait((audio_bytes, timestamp))
+                            processing_stats["total_audios_received"] += 1
+                            processing_stats["last_audio_time"] = timestamp
+                            logger.info(f"Audio ({len(audio_bytes)} bytes) capturado del robot y añadido a cola")
+                        except queue.Full:
+                            logger.warning("Cola de audio llena, descartando captura")
+                else:
+                    logger.error(f"Robot devolvió error en captura: {data.get('error')}")
+            else:
+                logger.error(f"Error HTTP al capturar audio: {response.status_code}")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error de conexión al capturar audio: {e}")
+        except Exception as e:
+            logger.error(f"Error inesperado en loop de captura: {e}")
+        # Esperar intervalo o salir si se detiene
+        if audio_capture_stop_event.wait(interval):
+            break
+    audio_capture_active = False
+    logger.info("⏹️ Captura de audio del robot detenida")
+
+@app.route('/monitor/start_audio_capture', methods=['POST'])
+def start_audio_capture():
+    """Inicia la captura continua de audio desde el robot."""
+    global audio_capture_active, audio_capture_thread, audio_capture_stop_event
+    if audio_capture_active:
+        return jsonify({"status": "already_running"})
+    duration = request.json.get('duration', AUDIO_POLL_DURATION) if request.is_json else AUDIO_POLL_DURATION
+    interval = request.json.get('interval', AUDIO_POLL_INTERVAL) if request.is_json else AUDIO_POLL_INTERVAL
+    audio_capture_stop_event.clear()
+    audio_capture_thread = threading.Thread(
+        target=robot_audio_capture_loop,
+        kwargs={"duration": duration, "interval": interval},
+        daemon=True
+    )
+    audio_capture_thread.start()
+    audio_capture_active = True
+    logger.info("Solicitud recibida: iniciar captura de audio del robot")
+    return jsonify({"status": "started", "duration": duration, "interval": interval})
+
+@app.route('/monitor/stop_audio_capture', methods=['POST'])
+def stop_audio_capture():
+    """Detiene la captura continua de audio del robot."""
+    global audio_capture_active
+    if not audio_capture_active:
+        return jsonify({"status": "not_running"})
+    audio_capture_stop_event.set()
+    logger.info("Solicitud recibida: detener captura de audio del robot")
+    return jsonify({"status": "stopping"})
 
 if __name__ == '__main__':
     logger.info("Iniciando Sistema de Monitorización del Robot")
