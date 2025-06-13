@@ -13,6 +13,7 @@ from collections import OrderedDict
 import time
 import requests
 import base64
+import math  # Para cálculos de ángulos
 
 # Importar componentes de Jarvis
 import config
@@ -332,17 +333,55 @@ def cleanup_video_state():
             del st.session_state[key]
 
 def get_direction_emoji(centroid, frame_width, frame_height):
-    """Calcula el emoji de dirección basado en la posición del centroide."""
+    """Calcula el emoji de dirección basado en la posición del centroide.
+    Además, envía un comando al robot para girar y apuntar hacia la persona
+    usando un control proporcional sencillo del error horizontal.
+    """
     if centroid is None:
         return "🎯"  # Centro por defecto si no hay centroide
     
     x, _ = centroid
     
-    # Dividir la pantalla en 9 secciones (3x3)
+    # Desviación horizontal normalizada (-1 a 1)
+    dx_norm = (x - frame_width / 2) / (frame_width / 2)
+    
+    # Control proporcional simple → ángulo máximo de 30°
+    max_angle_deg = 30.0
+    angle_deg = dx_norm * max_angle_deg
+    
+    # Umbral para evitar micro‐ajustes
+    angle_threshold_deg = 3.0  # No girar si desviación < 3° aprox.
+    
+    if abs(angle_deg) > angle_threshold_deg:
+        # Calcular velocidad angular (rad/s) para un giro suave de ~0.5 s
+        duration = 0.5  # segundos
+        angular_velocity = math.radians(angle_deg) / duration  # rad/s
+        # Limitar velocidad angular máxima
+        max_w = 1.0  # rad/s
+        angular_velocity = max(-max_w, min(max_w, angular_velocity))
+
+        # Rate-limit para no saturar al robot (máx. una orden cada 0.3 s)
+        now = time.time()
+        last_turn = st.session_state.get("_last_robot_turn_ts", 0)
+        if now - last_turn > 0.3:
+            try:
+                requests.post(
+                    f"{ROBOT_API_BASE_URL}/robot/move",
+                    json={
+                        "movement": "custom",
+                        "velocity": 0.0,
+                        "angular_velocity": -angular_velocity,
+                        "duration": duration,
+                    },
+                    timeout=0.2,
+                )
+                st.session_state._last_robot_turn_ts = now
+            except Exception as e:
+                print(f"[WARN] No se pudo enviar giro al robot: {e}")
+    
+    # --- Mapear a emoji de dirección (visual) ---
     third_width = frame_width // 3
     hard_width = frame_width // 6
-    
-    # Determinar posición horizontal
     if x < hard_width:
         horizontal = "hard_left"
     elif x > frame_width - hard_width:
@@ -354,16 +393,13 @@ def get_direction_emoji(centroid, frame_width, frame_height):
     else:
         horizontal = "right"
     
-    
-    # Mapear combinaciones a emojis
     direction_map = {
         ("hard_left"): "↙️​",
         ("left"): "↖️",
-        ("center"): "⬆️", 
+        ("center"): "⬆️",
         ("right"): "↗️",
-        ("hard_right"): "↘️"
+        ("hard_right"): "↘️",
     }
-    
     return direction_map.get((horizontal), "🎯")
 
 def run_video_detection_mode():
@@ -451,7 +487,7 @@ def run_video_detection_mode():
     
     with col5:
         # Control de intervalo de API
-        api_interval = st.slider("Frames/API", min_value=1, max_value=50, value=5, key="api_interval")
+        api_interval = st.slider("Frames/API", min_value=1, max_value=50, value=1, key="api_interval")
     
     # Información del modo
     if st.checkbox("ℹ️ Ayuda", key="show_help"):
@@ -521,7 +557,7 @@ def run_video_detection_mode():
             try:
                 # Obtener frame del robot API
                 response = requests.post(
-                    f"{ROBOT_API_BASE_URL}/robot/camera/detect_people", 
+                    f"{ROBOT_API_BASE_URL}/robot/camera/frame", 
                     json={"return_image": True},
                     timeout=5
                 )

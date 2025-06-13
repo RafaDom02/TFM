@@ -366,148 +366,50 @@ def get_available_movements():
 
 @app.route('/robot/camera/capture', methods=['POST'])
 def capture_image():
-    """
-    Captura una imagen desde la cámara del robot.
-    
-    Returns:
-        JSON con la imagen en base64 o error
-    """
-    try:
-        import cv2
-        import base64
-        import uuid
-        import os
-        
-        # Verificar disponibilidad de cámaras
-        available_cameras = get_available_cameras()
-        
-        if not available_cameras:
-            return jsonify({
-                'error': 'No se encontraron cámaras disponibles en el robot',
-                'timestamp': rospy.Time.now().to_sec(),
-                'available_cameras': available_cameras
-            }), 404
-        
-        # Usar la primera cámara disponible
-        camera_index = available_cameras[0]
-        rospy.loginfo("Usando cámara en índice: {}".format(camera_index))
-        
-        # Intentar abrir la cámara
-        cap = cv2.VideoCapture(camera_index)
-        if not cap.isOpened():
-            return jsonify({
-                'error': 'No se pudo acceder a la cámara del robot en índice {}'.format(camera_index),
-                'timestamp': rospy.Time.now().to_sec()
-            }), 500
-        
-        # Capturar frame
-        ret, frame = cap.read()
-        cap.release()
-        
-        if not ret or frame is None:
-            return jsonify({
-                'error': 'No se pudo capturar frame de la cámara',
-                'timestamp': rospy.Time.now().to_sec()
-            }), 500
-        
-        # Crear carpeta temporal si no existe (Python 2 no soporta exist_ok)
-        if not os.path.exists("temp_images"):
-            os.makedirs("temp_images")
-        temp_filename = "temp_robot_capture_{}.jpg".format(uuid.uuid4())
-        temp_path = os.path.join("temp_images", temp_filename)
-        
-        success = cv2.imwrite(temp_path, frame)
-        if not success:
-            return jsonify({
-                'error': 'Error al guardar imagen capturada',
-                'timestamp': rospy.Time.now().to_sec()
-            }), 500
-        
-        # Codificar imagen en base64 para envío
-        with open(temp_path, 'rb') as img_file:
-            img_data = img_file.read()
-            img_base64 = base64.b64encode(img_data).decode('utf-8')
-        
-        # Limpiar archivo temporal
-        try:
-            os.remove(temp_path)
-        except:
-            pass
-        
-        # Obtener dimensiones de la imagen
-        height, width, channels = frame.shape
-        
-        rospy.loginfo("Imagen capturada desde cámara del robot: {}x{}".format(width, height))
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Imagen capturada correctamente',
-            'image_data': img_base64,
-            'image_format': 'jpeg',
-            'width': int(width),
-            'height': int(height),
-            'camera_index': camera_index,
-            'timestamp': rospy.Time.now().to_sec(),
-            'temp_filename': temp_filename
-        })
-        
-    except Exception as e:
-        rospy.logerr("Error capturando imagen: {}".format(e))
-        return jsonify({
-            'error': 'Error interno al capturar imagen: {}'.format(str(e)),
-            'timestamp': rospy.Time.now().to_sec()
-        }), 500
+    """Endpoint legado para capturar una imagen única de la cámara del robot."""
+    return _internal_capture_frame()
 
-@app.route('/robot/camera/detect_people', methods=['POST'])
-def detect_people_camera():
-    """
-    Captura imagen desde la cámara del robot para detección de personas.
-    NO hace detección pesada - solo captura y envía la imagen raw al monitor.
-    
-    Returns:
-        JSON con imagen en base64 para procesamiento remoto
-    """
+
+@app.route('/robot/camera/frame', methods=['POST'])
+@app.route('/robot/camera/detect_people', methods=['POST'])  # Compatibilidad
+def camera_frame():
+    """Alias de captura de frame que reutiliza la misma implementación compartida."""
+    return _internal_capture_frame()
+
+
+def _internal_capture_frame():
+    """Implementación compartida para capturar frame y devolver JSON."""
     try:
         import cv2
         import base64
         import uuid
         import os
         
-        # Parámetros opcionales
         data = request.get_json() or {}
-        return_image = data.get('return_image', True)  # Por defecto incluir imagen
+        return_image = data.get('return_image', True)
         
-        # Verificar disponibilidad de cámaras
         available_cameras = get_available_cameras()
-        
         if not available_cameras:
             return jsonify({
                 'error': 'No se encontraron cámaras disponibles en el robot',
                 'timestamp': rospy.Time.now().to_sec()
             }), 404
-        
         camera_index = available_cameras[0]
         
-        # Capturar frame
         cap = cv2.VideoCapture(camera_index)
         if not cap.isOpened():
             return jsonify({
                 'error': 'No se pudo acceder a la cámara del robot',
                 'timestamp': rospy.Time.now().to_sec()
             }), 500
-        
         ret, frame = cap.read()
         cap.release()
-        
         if not ret or frame is None:
             return jsonify({
                 'error': 'No se pudo capturar frame',
                 'timestamp': rospy.Time.now().to_sec()
             }), 500
-        
         (h, w) = frame.shape[:2]
-        
-        # Información básica de la captura
         result = {
             'status': 'success',
             'frame_width': w,
@@ -516,25 +418,20 @@ def detect_people_camera():
             'timestamp': rospy.Time.now().to_sec(),
             'message': 'Frame capturado para procesamiento remoto'
         }
-        
-        # Incluir imagen en base64 para envío al monitor
         if return_image:
             ret2, buf = cv2.imencode('.jpg', frame)
             if ret2:
                 img_base64 = base64.b64encode(buf.tobytes()).decode('utf-8')
                 result['image_data'] = img_base64
                 result['image_format'] = 'jpeg'
-                rospy.loginfo("Frame capturado y codificado para detección remota: {}x{}".format(w, h))
             else:
                 return jsonify({
                     'error': 'Error al codificar imagen para envío',
                     'timestamp': rospy.Time.now().to_sec()
                 }), 500
-        
         return jsonify(result)
-        
     except Exception as e:
-        rospy.logerr("Error en detect_people_camera: {}".format(e))
+        rospy.logerr('Error capturando frame: {}'.format(e))
         return jsonify({
             'error': 'Error interno: {}'.format(str(e)),
             'timestamp': rospy.Time.now().to_sec()
@@ -957,7 +854,7 @@ if __name__ == '__main__':
     print("  GET /robot/status - Estado del robot")
     print("  GET /robot/movements - Movimientos disponibles")
     print("  POST /robot/camera/capture - Capturar imagen desde cámara del robot")
-    print("  POST /robot/camera/detect_people - Detectar personas y obtener dirección")
+    print("  POST /robot/camera/frame - Capturar frame (detección remota)")
     print("  GET /robot/camera/status - Estado de la cámara del robot")
     print("  GET /robot/camera/diagnose - Diagnóstico detallado de cámaras")
     print("  POST /robot/audio/capture - Capturar audio desde micrófono del robot")
