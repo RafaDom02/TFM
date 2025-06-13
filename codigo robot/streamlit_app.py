@@ -324,7 +324,8 @@ def cleanup_video_state():
     # Eliminar todas las variables de estado del video
     video_keys = [
         "video_mode_active", "video_frame_count", "video_tracker", 
-        "robot_api_connected", "vision_client", "last_tracked_people"
+        "robot_api_connected", "vision_client", "last_tracked_people",
+        "video_should_run", "frame_width", "frame_height"
     ]
     for key in video_keys:
         if key in st.session_state:
@@ -374,6 +375,9 @@ def run_video_detection_mode():
         st.session_state.video_tracker = None
         st.session_state.robot_api_connected = False
         st.session_state.video_should_run = False
+        st.session_state.frame_width = 640
+        st.session_state.frame_height = 480
+        st.session_state.last_tracked_people = {}
     
     # Importar Google Cloud Vision
     try:
@@ -435,9 +439,6 @@ def run_video_detection_mode():
         if st.button("⏹ Detener", key="stop_video_button"):
             st.session_state.video_should_run = False
             st.session_state.video_mode_active = False
-            if st.session_state.video_cap is not None:
-                st.session_state.video_cap.release()
-                st.session_state.video_cap = None
             st.success("Video detenido")
     
     with col4:
@@ -450,7 +451,7 @@ def run_video_detection_mode():
     
     with col5:
         # Control de intervalo de API
-        api_interval = st.slider("Frames/API", min_value=5, max_value=50, value=20, key="api_interval")
+        api_interval = st.slider("Frames/API", min_value=1, max_value=50, value=5, key="api_interval")
     
     # Información del modo
     if st.checkbox("ℹ️ Ayuda", key="show_help"):
@@ -695,7 +696,7 @@ def run_video_detection_mode():
                     direction_placeholder.metric("Dirección", "🎯")
                 
                 # Actualizar SOLO el placeholder del video - SIN RECARGAR LA PÁGINA
-                video_placeholder.image(frame_rgb, channels="RGB", use_container_width=True)
+                video_placeholder.image(frame_rgb, channels="RGB")
                 
                 # Pequeña pausa entre frames
                 time.sleep(0.05)  # 20 FPS aproximadamente
@@ -823,7 +824,7 @@ def process_prompt(user_text_prompt: str):
             if img_path and img_object:
                 st.session_state.history.append({"role": "user_image", "content": img_object})
                 with st.chat_message("user"):
-                    st.image(img_object, caption="Imagen capturada", use_container_width=True)
+                    st.image(img_object, caption="Imagen capturada")
 
                 # Crear un historial limpio solo para el análisis de imagen actual
                 # No incluir conversaciones anteriores que podrían interferir
@@ -896,11 +897,11 @@ for message in st.session_state.history:
         if message["role"] == "user_image":
             if isinstance(message["content"], str):
                 if os.path.exists(message["content"]):
-                    st.image(message["content"], caption="Imagen", use_container_width=True)
+                    st.image(message["content"], caption="Imagen")
                 else:
                     st.warning("Imagen ya no disponible")
             else:
-                st.image(message["content"], caption="Imagen", use_container_width=True)
+                st.image(message["content"], caption="Imagen")
         else:
             st.markdown(message["content"])
 

@@ -62,6 +62,36 @@ if not hasattr(subprocess, 'run'):
     subprocess.run = _subprocess_run  # type: ignore
 
 
+# ─────────── utilidades de cámara ───────────
+def get_available_cameras():
+    """
+    Encuentra todas las cámaras disponibles en el sistema.
+    
+    Returns:
+        list: Lista de índices de cámaras disponibles
+    """
+    available_cameras = []
+    try:
+        import cv2
+        for i in range(5):  # Verificar hasta 5 índices de cámara
+            try:
+                cap = cv2.VideoCapture(i)
+                if cap.isOpened():
+                    ret, _ = cap.read()
+                    if ret:
+                        available_cameras.append(i)
+                    cap.release()
+                else:
+                    cap.release()
+            except Exception:
+                # Silenciar errores de cámaras individuales
+                continue
+    except ImportError:
+        # OpenCV no disponible
+        pass
+    return available_cameras
+
+
 # ─────────── utilidades PoseStamped ───────────
 def yaw_deg_to_quat(yaw_deg):
     """Convierte yaw en grados a quaternion (x,y,z,w)."""
@@ -348,11 +378,25 @@ def capture_image():
         import uuid
         import os
         
+        # Verificar disponibilidad de cámaras
+        available_cameras = get_available_cameras()
+        
+        if not available_cameras:
+            return jsonify({
+                'error': 'No se encontraron cámaras disponibles en el robot',
+                'timestamp': rospy.Time.now().to_sec(),
+                'available_cameras': available_cameras
+            }), 404
+        
+        # Usar la primera cámara disponible
+        camera_index = available_cameras[0]
+        rospy.loginfo("Usando cámara en índice: {}".format(camera_index))
+        
         # Intentar abrir la cámara
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(camera_index)
         if not cap.isOpened():
             return jsonify({
-                'error': 'No se pudo acceder a la cámara del robot',
+                'error': 'No se pudo acceder a la cámara del robot en índice {}'.format(camera_index),
                 'timestamp': rospy.Time.now().to_sec()
             }), 500
         
@@ -402,6 +446,7 @@ def capture_image():
             'image_format': 'jpeg',
             'width': int(width),
             'height': int(height),
+            'camera_index': camera_index,
             'timestamp': rospy.Time.now().to_sec(),
             'temp_filename': temp_filename
         })
@@ -432,8 +477,19 @@ def detect_people_camera():
         data = request.get_json() or {}
         return_image = data.get('return_image', True)  # Por defecto incluir imagen
         
+        # Verificar disponibilidad de cámaras
+        available_cameras = get_available_cameras()
+        
+        if not available_cameras:
+            return jsonify({
+                'error': 'No se encontraron cámaras disponibles en el robot',
+                'timestamp': rospy.Time.now().to_sec()
+            }), 404
+        
+        camera_index = available_cameras[0]
+        
         # Capturar frame
-        cap = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(camera_index)
         if not cap.isOpened():
             return jsonify({
                 'error': 'No se pudo acceder a la cámara del robot',
@@ -456,6 +512,7 @@ def detect_people_camera():
             'status': 'success',
             'frame_width': w,
             'frame_height': h,
+            'camera_index': camera_index,
             'timestamp': rospy.Time.now().to_sec(),
             'message': 'Frame capturado para procesamiento remoto'
         }
@@ -489,36 +546,150 @@ def camera_status():
     try:
         import cv2
         
-        cap = cv2.VideoCapture(0)
-        if cap.isOpened():
-            ret, frame = cap.read()
-            cap.release()
-            
-            if ret and frame is not None:
-                height, width, channels = frame.shape
-                return jsonify({
-                    'status': 'available',
-                    'message': 'Cámara del robot operativa',
-                    'resolution': {'width': int(width), 'height': int(height)},
-                    'timestamp': rospy.Time.now().to_sec()
-                })
-            else:
-                return jsonify({
-                    'status': 'error',
-                    'message': 'Cámara accesible pero no puede capturar',
-                    'timestamp': rospy.Time.now().to_sec()
-                }), 500
-        else:
+        # Usar la función utilitaria para obtener cámaras disponibles
+        available_cameras = get_available_cameras()
+        
+        if not available_cameras:
             return jsonify({
                 'status': 'unavailable',
-                'message': 'No se puede acceder a la cámara del robot',
+                'message': 'No se puede acceder a ninguna cámara del robot',
+                'available_cameras': [],
+                'camera_details': [],
                 'timestamp': rospy.Time.now().to_sec()
-            }), 500
+            }), 404
+        
+        # Obtener detalles de cada cámara disponible
+        camera_info = []
+        for camera_index in available_cameras:
+            try:
+                cap = cv2.VideoCapture(camera_index)
+                if cap.isOpened():
+                    ret, frame = cap.read()
+                    if ret and frame is not None:
+                        height, width, channels = frame.shape
+                        camera_info.append({
+                            'index': camera_index,
+                            'resolution': {'width': int(width), 'height': int(height)},
+                            'channels': int(channels)
+                        })
+                    cap.release()
+            except Exception as e:
+                rospy.logwarn("Error obteniendo detalles de cámara {}: {}".format(camera_index, e))
+                continue
+        
+        return jsonify({
+            'status': 'available',
+            'message': 'Cámaras del robot operativas',
+            'available_cameras': available_cameras,
+            'camera_details': camera_info,
+            'default_camera': available_cameras[0],
+            'timestamp': rospy.Time.now().to_sec()
+        })
             
     except Exception as e:
         return jsonify({
             'status': 'error',
-            'message': 'Error verificando cámara: {}'.format(str(e)),
+            'message': 'Error verificando cámaras: {}'.format(str(e)),
+            'timestamp': rospy.Time.now().to_sec()
+        }), 500
+
+@app.route('/robot/camera/diagnose', methods=['GET'])
+def diagnose_cameras():
+    """
+    Endpoint de diagnóstico detallado para problemas de cámara.
+    
+    Returns:
+        JSON con información de diagnóstico completa
+    """
+    try:
+        import cv2
+        import os
+        import subprocess
+        
+        diagnosis = {
+            'timestamp': rospy.Time.now().to_sec(),
+            'opencv_version': cv2.__version__,
+            'system_info': {},
+            'device_check': {},
+            'camera_test': {},
+            'recommendations': []
+        }
+        
+        # Verificar dispositivos de video del sistema
+        try:
+            if os.path.exists('/dev'):
+                video_devices = [f for f in os.listdir('/dev') if f.startswith('video')]
+                diagnosis['device_check']['video_devices'] = video_devices
+                diagnosis['device_check']['video_devices_count'] = len(video_devices)
+            else:
+                diagnosis['device_check']['video_devices'] = []
+                diagnosis['device_check']['video_devices_count'] = 0
+        except Exception as e:
+            diagnosis['device_check']['error'] = str(e)
+        
+        # Verificar con v4l2-ctl si está disponible
+        try:
+            result = subprocess.run(['v4l2-ctl', '--list-devices'], 
+                                  capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                diagnosis['system_info']['v4l2_devices'] = result.stdout
+            else:
+                diagnosis['system_info']['v4l2_error'] = result.stderr
+        except Exception as e:
+            diagnosis['system_info']['v4l2_unavailable'] = str(e)
+        
+        # Test de cámaras con OpenCV
+        available_cameras = get_available_cameras()
+        diagnosis['camera_test']['available_cameras'] = available_cameras
+        diagnosis['camera_test']['total_available'] = len(available_cameras)
+        
+        # Test detallado de cada índice
+        test_results = []
+        for i in range(10):  # Test más índices para diagnóstico
+            test_result = {
+                'index': i,
+                'can_open': False,
+                'can_read': False,
+                'error': None
+            }
+            
+            try:
+                cap = cv2.VideoCapture(i)
+                test_result['can_open'] = cap.isOpened()
+                
+                if cap.isOpened():
+                    ret, frame = cap.read()
+                    test_result['can_read'] = ret and frame is not None
+                    if ret and frame is not None:
+                        h, w = frame.shape[:2]
+                        test_result['resolution'] = {'width': w, 'height': h}
+                cap.release()
+                
+            except Exception as e:
+                test_result['error'] = str(e)
+            
+            test_results.append(test_result)
+        
+        diagnosis['camera_test']['detailed_tests'] = test_results
+        
+        # Generar recomendaciones
+        if not available_cameras:
+            diagnosis['recommendations'].append("No se encontraron cámaras. Verificar conexión física.")
+            if diagnosis['device_check'].get('video_devices_count', 0) == 0:
+                diagnosis['recommendations'].append("No hay dispositivos /dev/video*. Verificar drivers de cámara.")
+            else:
+                diagnosis['recommendations'].append("Dispositivos /dev/video* encontrados pero no accesibles via OpenCV.")
+        else:
+            diagnosis['recommendations'].append("Cámaras funcionando correctamente en índices: {}".format(available_cameras))
+        
+        if diagnosis['system_info'].get('v4l2_unavailable'):
+            diagnosis['recommendations'].append("Instalar v4l-utils para mejor diagnóstico: sudo apt-get install v4l-utils")
+        
+        return jsonify(diagnosis)
+        
+    except Exception as e:
+        return jsonify({
+            'error': 'Error durante diagnóstico: {}'.format(str(e)),
             'timestamp': rospy.Time.now().to_sec()
         }), 500
 
@@ -788,8 +959,9 @@ if __name__ == '__main__':
     print("  POST /robot/camera/capture - Capturar imagen desde cámara del robot")
     print("  POST /robot/camera/detect_people - Detectar personas y obtener dirección")
     print("  GET /robot/camera/status - Estado de la cámara del robot")
+    print("  GET /robot/camera/diagnose - Diagnóstico detallado de cámaras")
     print("  POST /robot/audio/capture - Capturar audio desde micrófono del robot")
     print("  POST /robot/audio/play - Reproducir audio/TTS en el robot")
     print("  GET /robot/audio/status - Estado del sistema de audio del robot")
-    
+    init_robot()
     app.run(host='0.0.0.0', port=5000, debug=True) 
